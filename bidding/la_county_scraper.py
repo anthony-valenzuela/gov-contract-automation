@@ -1,29 +1,68 @@
-"""
-Scrape Los Angeles County's procurement portal for new opportunities.
-"""
-
 import requests
 from bs4 import BeautifulSoup
 
-LA_COUNTY_BIDS_URL = "https://camisvr.co.la.ca.us/lacobids/BidLookUp/BidOpenStart.asp"
-
 def fetch_la_county_bids():
-    response = requests.get(LA_COUNTY_BIDS_URL)
-    soup = BeautifulSoup(response.content, "html.parser")
-    # Placeholder: Update selectors for live portal
-    bid_table = soup.find("table", {"id": "bidTable"})
+    url = "https://camisvr.co.la.ca.us/lacobids"
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, "html.parser")
+
     bids = []
-    if bid_table:
-        for row in bid_table.find_all("tr")[1:]:
-            cells = row.find_all("td")
-            bid = {
-                "title": cells[0].text.strip(),
-                "due_date": cells[1].text.strip(),
-                "url": cells[0].find("a")["href"]
-            }
-            bids.append(bid)
+    # Find the table body by its unique id
+    tbody = soup.find("tbody", id="searchTbl1")
+    if not tbody:
+        print("No bids table found.")
+        return bids
+
+    for row in tbody.find_all("tr"):
+        cols = row.find_all("td")
+        if len(cols) < 5:
+            continue  # Skip malformed rows
+
+        # 1. Solicitation Number and hidden bid ID (from selectBid)
+        num_link = cols[0].find("a")
+        solicitation_number = num_link.get_text(strip=True) if num_link else ""
+        bid_id = ""
+        if num_link and num_link.has_attr("href"):
+            # Extract bid ID from javascript:selectBid('...')
+            import re
+            match = re.search(r"selectBid\('(\d+)'\)", num_link["href"])
+            if match:
+                bid_id = match.group(1)
+
+        # 2. Title
+        title_label = cols[1].find("label", {"name": "BidTitleEllipsis"})
+        title = title_label.get_text(strip=True) if title_label else ""
+
+        # 3. Type
+        bid_type = cols[2].get_text(strip=True)
+
+        # 4. Department
+        department = cols[3].get_text(strip=True)
+
+        # 5. Close Date
+        close_date = cols[4].get_text(strip=True)
+
+        # 6. Commodity (optional, from label inside column 2)
+        comm_label = cols[1].find("label", {"name": "CommDescEllipsis"})
+        commodity = ""
+        if comm_label:
+            # Remove "Commodity:" prefix if present
+            commodity = comm_label.get_text(strip=True).replace("Commodity:", "").strip()
+
+        bids.append({
+            "solicitation_number": solicitation_number,
+            "bid_id": bid_id,
+            "title": title,
+            "type": bid_type,
+            "department": department,
+            "close_date": close_date,
+            "commodity": commodity
+        })
+
+    print(f"Number of bids found: {len(bids)}")
+    for bid in bids:
+        print(bid)
     return bids
 
 if __name__ == "__main__":
-    for bid in fetch_la_county_bids():
-        print(bid)
+    fetch_la_county_bids()
